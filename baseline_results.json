@@ -1,0 +1,10 @@
+{
+  "model": "logistic_regression",
+  "auc_roc": 0.9175,
+  "overall_tpr": 0.7438,
+  "equalized_odds_gap": 0.9406,
+  "runtime_seconds": 0.39,
+  "n_features": 39,
+  "train_size": 8140,
+  "test_size": 2035
+}
