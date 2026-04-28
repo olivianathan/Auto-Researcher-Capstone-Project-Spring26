@@ -1,0 +1,5 @@
+iteration,model,changes_made,auc_roc,overall_tpr,eq_odds_gap,runtime_seconds,fairness_pass,notes
+1,xgboost_base,"switched from logistic regression to XGBoost (100 trees, depth 4)",NA,NA,NA,NA,NA,"Testing if XGBoost improves over LR before adding complexity"
+2,xgboost_weighted,"added scale_pos_weight to handle class imbalance",NA,NA,NA,NA,NA,"Class weight should improve recall on minority class"
+3,xgboost_smote,"replaced class weights with SMOTE oversampling",NA,NA,NA,NA,NA,"SMOTE creates synthetic minority samples instead of reweighting"
+4,xgboost_tuned,"300 trees, depth 5, lr 0.05, subsample 0.8, colsample 0.8",NA,NA,NA,NA,NA,"Slower learning rate + more trees often improves generalization"
