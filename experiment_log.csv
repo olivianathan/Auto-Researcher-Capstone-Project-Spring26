@@ -1,5 +1,6 @@
-iteration,model,changes_made,auc_roc,overall_tpr,eq_odds_gap,runtime_seconds,fairness_pass,notes
-1,xgboost_base,"switched from logistic regression to XGBoost (100 trees, depth 4)",NA,NA,NA,NA,NA,"Testing if XGBoost improves over LR before adding complexity"
-2,xgboost_weighted,"added scale_pos_weight to handle class imbalance",NA,NA,NA,NA,NA,"Class weight should improve recall on minority class"
-3,xgboost_smote,"replaced class weights with SMOTE oversampling",NA,NA,NA,NA,NA,"SMOTE creates synthetic minority samples instead of reweighting"
-4,xgboost_tuned,"300 trees, depth 5, lr 0.05, subsample 0.8, colsample 0.8",NA,NA,NA,NA,NA,"Slower learning rate + more trees often improves generalization"
+timestamp,iteration,model,experiment_name,model_type,changes_made,notes,threshold,auc_roc,overall_tpr,eq_odds_gap,eq_odds_gap_overall,eq_odds_gap_sex,eq_odds_gap_age,eq_odds_gap_race,runtime_seconds,fairness_pass,objective_score
+2026-04-21T18:24:44,1,logistic_regression,iter_1_lr_baseline_repro,logistic_regression,baseline logistic regression (no tuning),Reference baseline to compare all later model families.,0.5,0.9242,0.7728,0.9767,0.9767,0.0506,0.9767,0.1869,0.08,FAIL,0.7777
+2026-04-28T18:24:44,2,logistic_regression,iter_2_lr_balanced,logistic_regression,logistic regression with class_weight=balanced,Addresses class imbalance to improve positive-class recall and subgroup parity.,0.5,0.9234,0.8835,1,1,0.066,1,0.1636,0.07,FAIL,0.7734
+2026-04-28T18:24:46,3,random_forest,iter_3_random_forest,random_forest,switched to random forest with balanced subsampling,Captures non-linear interactions while controlling variance with depth/leaf regularization.,0.5,0.9259,0.9068,0.9286,0.9286,0.0226,0.923,0.1818,2.31,FAIL,0.7866
+2026-04-28T18:24:47,4,xgboost,iter_4_gradient_boosted_trees,xgboost,switched to gradient-boosted trees (XGBoost) with regularization,Boosting often improves AUC on tabular data; uses logistic fallback if XGBoost import fails.,0.5,0.9322,0.8019,0.8403,0.8403,0.0279,0.8403,0.2925,0.47,FAIL,0.8062
+2026-04-28T18:24:48,5,xgboost_fairness_tuned,iter_5_best_family_fairness_tuned,xgboost_fairness_tuned,applied fairness-aware threshold tuning on strongest non-linear candidate,Searches validation threshold to reduce equalized-odds gap with minimal AUC loss.,0.75,0.9322,0.5612,0.8202,0.8202,0.0073,0.8202,0.2683,0.93,FAIL,0.8092
