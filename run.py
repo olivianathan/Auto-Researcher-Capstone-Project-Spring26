@@ -6,7 +6,13 @@ from model.py, evaluates results, and appends a row to experiment_log.csv.
 Usage:
     python run.py
 
-The agent modifies model.py, then calls python run.py to evaluate.
+Fairness metric (iters 7+):
+  - Sex:  equalized odds (TPR gap across Male/Female)
+  - Race: equalized odds (TPR gap across race groups)
+  - Age:  mean absolute calibration error (MACE) across age bins
+  Overall fairness = max(sex_gap, race_gap, age_mace)
+  Threshold search (fairness_tuned) minimizes sex+race equalized odds only,
+  since age calibration error is threshold-independent (uses y_prob directly).
 """
 
 import csv
@@ -63,32 +69,16 @@ elapsed = round(time.time() - start, 2)
 
 y_prob = model.predict_proba(X_eval)[:, 1]
 
-# -- 3. FAIRNESS HELPER --------------------------------------------
-def _equalized_odds_gap(y_true, y_pred_bin, subgroup_df):
-    """
-    Returns (overall_gap, per_axis_dict) where per_axis_dict has keys
-    'sex', 'age', 'race'. Gap = max(TPR) - min(TPR) across subgroups.
-    Mirrors the equalized_odds_gap() logic from Capstone.ipynb cell 7.
-    """
+# -- 3. FAIRNESS HELPERS -------------------------------------------
+subgroup_cols = X_val[['RIAGENDR', 'RIDAGEYR', 'RIDRETH3']]
+
+def _sex_race_eq_odds(y_true, y_pred_bin, subgroup_df):
+    """Equalized odds (TPR gap) for sex and race axes."""
     y_true_np = np.asarray(y_true)
     y_pred_np = np.asarray(y_pred_bin)
-
-    age_bucket = pd.cut(
-        subgroup_df['RIDAGEYR'],
-        bins=[0, 17, 34, 49, 64, 80],
-        labels=['0-17', '18-34', '35-49', '50-64', '65-80'],
-    )
-
-    axes = {
-        'sex':  subgroup_df['RIAGENDR'],
-        'race': subgroup_df['RIDRETH3'],
-        'age':  age_bucket,
-    }
-
-    per_axis = {}
-    all_tprs = []
-
-    for axis_name, series in axes.items():
+    gaps = {}
+    for axis_name, series in [('sex', subgroup_df['RIAGENDR']),
+                               ('race', subgroup_df['RIDRETH3'])]:
         tprs = []
         for val in series.dropna().unique():
             mask = series.values == val
@@ -100,22 +90,39 @@ def _equalized_odds_gap(y_true, y_pred_bin, subgroup_df):
             tpr = tp_s / (tp_s + fn_s) if (tp_s + fn_s) > 0 else np.nan
             if not np.isnan(tpr):
                 tprs.append(tpr)
-                all_tprs.append(tpr)
-        per_axis[axis_name] = round(max(tprs) - min(tprs), 4) if len(tprs) >= 2 else np.nan
+        gaps[axis_name] = round(max(tprs) - min(tprs), 4) if len(tprs) >= 2 else np.nan
+    return gaps
 
-    overall = round(max(all_tprs) - min(all_tprs), 4) if len(all_tprs) >= 2 else 1.0
-    return overall, per_axis
-
-subgroup_cols = X_val[['RIAGENDR', 'RIDAGEYR', 'RIDRETH3']]
+def _age_calibration_error(y_true, y_prob, age_series):
+    """
+    Mean absolute calibration error (MACE) across age bins.
+    For each bin: |mean(predicted prob) - actual positive rate|.
+    Threshold-independent -- uses raw probabilities.
+    """
+    age_bucket = pd.cut(age_series, bins=[0, 17, 34, 49, 64, 80],
+                        labels=['0-17', '18-34', '35-49', '50-64', '65-80'])
+    y_true_np = np.asarray(y_true)
+    errors = []
+    for grp in ['0-17', '18-34', '35-49', '50-64', '65-80']:
+        mask = (age_bucket == grp).values
+        if mask.sum() < 20:
+            continue
+        actual_rate    = float(y_true_np[mask].mean())
+        predicted_rate = float(y_prob[mask].mean())
+        errors.append(abs(actual_rate - predicted_rate))
+    return round(float(np.mean(errors)), 4) if errors else np.nan
 
 # -- 4. THRESHOLD --------------------------------------------------
+# Threshold search only minimizes sex+race equalized odds.
+# Age calibration error is threshold-independent and not included here.
 if THRESHOLD_MODE == 'fairness_tuned':
-    print("  Searching fairness-optimal threshold (0.25-0.75)...")
+    print("  Searching fairness-optimal threshold for sex/race (0.25-0.75)...")
     best_thr, best_loss = 0.5, np.inf
     for thr in np.linspace(0.25, 0.75, 51):
-        y_tmp = (y_prob >= thr).astype(int)
-        gap_tmp, _ = _equalized_odds_gap(y_val.values, y_tmp, subgroup_cols)
-        loss = gap_tmp + 0.02 * abs(thr - 0.5)
+        y_tmp  = (y_prob >= thr).astype(int)
+        sr     = _sex_race_eq_odds(y_val.values, y_tmp, subgroup_cols)
+        sr_max = max(v for v in sr.values() if not np.isnan(v))
+        loss   = sr_max + 0.02 * abs(thr - 0.5)
         if loss < best_loss:
             best_loss, best_thr = loss, float(thr)
     print(f"  Best threshold: {best_thr:.3f}")
@@ -130,9 +137,15 @@ cm          = confusion_matrix(y_val, y_pred)
 tn, fp, fn, tp = cm.ravel()
 overall_tpr = round(tp / (tp + fn), 4) if (tp + fn) > 0 else 0
 
-eq_gap, axis_gaps = _equalized_odds_gap(y_val.values, y_pred, subgroup_cols)
+sr_gaps  = _sex_race_eq_odds(y_val.values, y_pred, subgroup_cols)
+age_mace = _age_calibration_error(y_val.values, y_prob, subgroup_cols['RIDAGEYR'])
 
-objective    = round(auc - 0.15 * eq_gap, 4)
+sex_gap  = sr_gaps.get('sex',  np.nan)
+race_gap = sr_gaps.get('race', np.nan)
+all_metrics     = [v for v in [sex_gap, race_gap, age_mace] if not np.isnan(v)]
+overall_fairness = round(max(all_metrics), 4) if all_metrics else 1.0
+
+objective    = round(auc - 0.15 * overall_fairness, 4)
 baseline_obj = round(baseline['auc_roc'] - 0.15 * baseline['equalized_odds_gap'], 4)
 improved     = "YES" if objective > baseline_obj else "NO"
 
@@ -141,10 +154,10 @@ print(f"\n-- RESULTS -----------------------------------------")
 print(f"  AUC-ROC:          {auc}  (baseline: {baseline['auc_roc']})")
 print(f"  Overall TPR:      {overall_tpr}")
 print(f"  Threshold:        {best_thr:.3f}")
-print(f"  EqOdds gap:       {eq_gap}  (baseline: {baseline['equalized_odds_gap']})")
-print(f"    -> sex:          {axis_gaps.get('sex', 'N/A')}")
-print(f"    -> age:          {axis_gaps.get('age', 'N/A')}")
-print(f"    -> race:         {axis_gaps.get('race', 'N/A')}")
+print(f"  Overall fairness: {overall_fairness}  (max of sex/race EqOdds + age MACE)")
+print(f"    -> sex  (EqOdds):  {sex_gap}")
+print(f"    -> race (EqOdds):  {race_gap}")
+print(f"    -> age  (MACE):    {age_mace}")
 print(f"  Objective score:  {objective}  (baseline: {baseline_obj})")
 print(f"  Runtime:          {elapsed}s")
 print(f"  Improved over baseline: {improved}")
@@ -163,13 +176,11 @@ log_columns = [
     'discard_or_keep',
 ]
 
-# auto-detect next iteration number from log
 if os.path.exists(log_path):
-    prev_log = pd.read_csv(log_path)
+    prev_log  = pd.read_csv(log_path)
     iteration = int(pd.to_numeric(prev_log['iteration'], errors='coerce').dropna().max()) + 1 \
         if 'iteration' in prev_log.columns and not prev_log.empty else 1
 
-    # discard_or_keep: compare against last kept model's objective
     discard_or_keep = 'keep'
     if 'discard_or_keep' in prev_log.columns and 'objective_score' in prev_log.columns:
         kept = prev_log[prev_log['discard_or_keep'] == 'keep']
@@ -180,7 +191,7 @@ else:
     iteration       = 1
     discard_or_keep = 'keep'
 
-fairness_pass = 'PASS' if eq_gap <= 0.05 else 'FAIL'
+fairness_pass = 'PASS' if overall_fairness <= 0.05 else 'FAIL'
 
 write_header = not os.path.exists(log_path)
 with open(log_path, 'a', newline='', encoding='utf-8') as f:
@@ -188,25 +199,25 @@ with open(log_path, 'a', newline='', encoding='utf-8') as f:
     if write_header:
         writer.writeheader()
     writer.writerow({
-        'timestamp':              pd.Timestamp.now().isoformat(timespec='seconds'),
-        'iteration':              iteration,
-        'model':                  DESCRIPTION,
-        'experiment_name':        f'iter_{iteration}',
-        'model_type':             DESCRIPTION.split(':')[0].strip() if ':' in DESCRIPTION else DESCRIPTION,
-        'changes_made':           DESCRIPTION,
-        'notes':                  '',
-        'threshold':              round(best_thr, 3),
-        'auc_roc':                auc,
-        'overall_tpr':            overall_tpr,
-        'eq_odds_gap':            eq_gap,
-        'eq_odds_gap_overall':    eq_gap,
-        'eq_odds_gap_sex':        axis_gaps.get('sex', ''),
-        'eq_odds_gap_age':        axis_gaps.get('age', ''),
-        'eq_odds_gap_race':       axis_gaps.get('race', ''),
-        'runtime_seconds':        elapsed,
-        'fairness_pass':          fairness_pass,
-        'objective_score':        objective,
-        'discard_or_keep':        discard_or_keep,
+        'timestamp':           pd.Timestamp.now().isoformat(timespec='seconds'),
+        'iteration':           iteration,
+        'model':               DESCRIPTION,
+        'experiment_name':     f'iter_{iteration}',
+        'model_type':          DESCRIPTION.split(':')[0].strip() if ':' in DESCRIPTION else DESCRIPTION,
+        'changes_made':        DESCRIPTION,
+        'notes':               'age fairness = MACE (iters 7+); sex/race = equalized odds',
+        'threshold':           round(best_thr, 3),
+        'auc_roc':             auc,
+        'overall_tpr':         overall_tpr,
+        'eq_odds_gap':         overall_fairness,
+        'eq_odds_gap_overall': overall_fairness,
+        'eq_odds_gap_sex':     sex_gap,
+        'eq_odds_gap_age':     age_mace,
+        'eq_odds_gap_race':    race_gap,
+        'runtime_seconds':     elapsed,
+        'fairness_pass':       fairness_pass,
+        'objective_score':     objective,
+        'discard_or_keep':     discard_or_keep,
     })
 
 print(f"\n  decision: {discard_or_keep.upper()}")
@@ -238,26 +249,34 @@ try:
         plot_df[col] = pd.to_numeric(plot_df[col], errors='coerce')
     plot_df = plot_df.dropna(subset=['auc_roc', 'eq_odds_gap_overall']).sort_values('iteration')
 
+    # mark where the fairness metric definition changed
+    switch_iter = 7
+
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
     ax = axes[0]
-    ax.scatter(plot_df['eq_odds_gap_overall'], plot_df['auc_roc'], alpha=0.8, zorder=3)
+    pre  = plot_df[plot_df['iteration'] < switch_iter]
+    post = plot_df[plot_df['iteration'] >= switch_iter]
+    ax.scatter(pre['eq_odds_gap_overall'],  pre['auc_roc'],  alpha=0.8, zorder=3, label='iters 1-6 (EqOdds)')
+    ax.scatter(post['eq_odds_gap_overall'], post['auc_roc'], alpha=0.8, zorder=3, marker='D', label='iters 7+ (hybrid)')
     for _, row in plot_df.iterrows():
         ax.annotate(int(row['iteration']),
                     (row['eq_odds_gap_overall'], row['auc_roc']),
                     textcoords='offset points', xytext=(5, 5), fontsize=9)
-    ax.set_title('AUC vs Equalized Odds Gap')
-    ax.set_xlabel('Equalized Odds Gap (lower = fairer)')
+    ax.set_title('AUC vs Fairness Metric')
+    ax.set_xlabel('Fairness metric (EqOdds iters 1-6 / hybrid iters 7+)')
     ax.set_ylabel('AUC-ROC (higher = better)')
+    ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
 
     ax2 = axes[1]
     ax2.plot(plot_df['iteration'], plot_df['auc_roc'], marker='o', label='AUC-ROC')
-    ax2.plot(plot_df['iteration'], plot_df['eq_odds_gap_overall'], marker='o', label='EqOdds Gap')
+    ax2.plot(plot_df['iteration'], plot_df['eq_odds_gap_overall'], marker='o', label='Fairness metric')
+    ax2.axvline(x=switch_iter - 0.5, color='gray', linestyle='--', linewidth=1, label='metric switch')
     ax2.set_title('Metric Trend by Iteration')
     ax2.set_xlabel('Iteration')
     ax2.set_ylabel('Value')
-    ax2.legend()
+    ax2.legend(fontsize=8)
     ax2.grid(alpha=0.3)
 
     plt.tight_layout()
