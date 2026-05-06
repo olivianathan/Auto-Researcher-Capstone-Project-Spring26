@@ -1,5 +1,5 @@
 """
-run.py  —  FROZEN
+run.py  --  FROZEN
 Do not modify this file. It loads the prepared data, calls build_model()
 from model.py, evaluates results, and appends a row to experiment_log.csv.
 
@@ -23,7 +23,7 @@ from sklearn.preprocessing import StandardScaler
 
 from model import build_model, DESCRIPTION, THRESHOLD_MODE
 
-# ── 1. LOAD PREPARED DATA ─────────────────────────────────────────
+# -- 1. LOAD PREPARED DATA -----------------------------------------
 print("Loading prepared data...")
 
 X_train = pd.read_csv('X_train.csv', index_col=0)
@@ -39,10 +39,10 @@ with open('locked_test_indices.json') as f:
 
 assert len(set(X_train.index) & locked_idx) == 0, "LEAK: test indices found in train set!"
 assert len(set(X_val.index)   & locked_idx) == 0, "LEAK: test indices found in val set!"
-print("  Test set isolation confirmed — no leakage.")
+print("  Test set isolation confirmed -- no leakage.")
 print(f"  Train: {len(X_train):,} | Val: {len(X_val):,}")
 
-# ── 2. BUILD + FIT MODEL ──────────────────────────────────────────
+# -- 2. BUILD + FIT MODEL ------------------------------------------
 print(f"\nBuilding model: {DESCRIPTION}")
 
 model = build_model()
@@ -63,7 +63,7 @@ elapsed = round(time.time() - start, 2)
 
 y_prob = model.predict_proba(X_eval)[:, 1]
 
-# ── 3. FAIRNESS HELPER ────────────────────────────────────────────
+# -- 3. FAIRNESS HELPER --------------------------------------------
 def _equalized_odds_gap(y_true, y_pred_bin, subgroup_df):
     """
     Returns (overall_gap, per_axis_dict) where per_axis_dict has keys
@@ -108,9 +108,9 @@ def _equalized_odds_gap(y_true, y_pred_bin, subgroup_df):
 
 subgroup_cols = X_val[['RIAGENDR', 'RIDAGEYR', 'RIDRETH3']]
 
-# ── 4. THRESHOLD ──────────────────────────────────────────────────
+# -- 4. THRESHOLD --------------------------------------------------
 if THRESHOLD_MODE == 'fairness_tuned':
-    print("  Searching fairness-optimal threshold (0.25–0.75)...")
+    print("  Searching fairness-optimal threshold (0.25-0.75)...")
     best_thr, best_loss = 0.5, np.inf
     for thr in np.linspace(0.25, 0.75, 51):
         y_tmp = (y_prob >= thr).astype(int)
@@ -124,7 +124,7 @@ else:
 
 y_pred = (y_prob >= best_thr).astype(int)
 
-# ── 5. EVALUATE ───────────────────────────────────────────────────
+# -- 5. EVALUATE ---------------------------------------------------
 auc         = round(roc_auc_score(y_val, y_prob), 4)
 cm          = confusion_matrix(y_val, y_pred)
 tn, fp, fn, tp = cm.ravel()
@@ -136,20 +136,20 @@ objective    = round(auc - 0.15 * eq_gap, 4)
 baseline_obj = round(baseline['auc_roc'] - 0.15 * baseline['equalized_odds_gap'], 4)
 improved     = "YES" if objective > baseline_obj else "NO"
 
-# ── 6. PRINT RESULTS ─────────────────────────────────────────────
-print(f"\n── RESULTS ─────────────────────────────────────────")
+# -- 6. PRINT RESULTS ---------------------------------------------
+print(f"\n-- RESULTS -----------------------------------------")
 print(f"  AUC-ROC:          {auc}  (baseline: {baseline['auc_roc']})")
 print(f"  Overall TPR:      {overall_tpr}")
 print(f"  Threshold:        {best_thr:.3f}")
 print(f"  EqOdds gap:       {eq_gap}  (baseline: {baseline['equalized_odds_gap']})")
-print(f"    → sex:          {axis_gaps.get('sex', 'N/A')}")
-print(f"    → age:          {axis_gaps.get('age', 'N/A')}")
-print(f"    → race:         {axis_gaps.get('race', 'N/A')}")
+print(f"    -> sex:          {axis_gaps.get('sex', 'N/A')}")
+print(f"    -> age:          {axis_gaps.get('age', 'N/A')}")
+print(f"    -> race:         {axis_gaps.get('race', 'N/A')}")
 print(f"  Objective score:  {objective}  (baseline: {baseline_obj})")
 print(f"  Runtime:          {elapsed}s")
 print(f"  Improved over baseline: {improved}")
 
-# ── 7. APPEND TO experiment_log.csv ──────────────────────────────
+# -- 7. APPEND TO experiment_log.csv ------------------------------
 log_path = 'experiment_log.csv'
 log_columns = [
     'timestamp', 'iteration',
@@ -160,7 +160,7 @@ log_columns = [
     'eq_odds_gap', 'eq_odds_gap_overall',
     'eq_odds_gap_sex', 'eq_odds_gap_age', 'eq_odds_gap_race',
     'runtime_seconds', 'fairness_pass', 'objective_score',
-    'improved_over_baseline', 'discard_or_keep',
+    'discard_or_keep',
 ]
 
 # auto-detect next iteration number from log
@@ -206,14 +206,13 @@ with open(log_path, 'a', newline='', encoding='utf-8') as f:
         'runtime_seconds':        elapsed,
         'fairness_pass':          fairness_pass,
         'objective_score':        objective,
-        'improved_over_baseline': improved,
         'discard_or_keep':        discard_or_keep,
     })
 
 print(f"\n  decision: {discard_or_keep.upper()}")
-print(f"Logged → {log_path} (iteration {iteration})")
+print(f"Logged -> {log_path} (iteration {iteration})")
 
-# ── 8. SUMMARY TABLE ─────────────────────────────────────────────
+# -- 8. SUMMARY TABLE ---------------------------------------------
 try:
     summary = pd.read_csv(log_path)
     for col in ['iteration', 'auc_roc', 'eq_odds_gap_overall', 'objective_score']:
@@ -225,12 +224,12 @@ try:
             'eq_odds_gap_overall', 'threshold', 'objective_score', 'discard_or_keep']
     cols = [c for c in cols if c in summary.columns]
 
-    print(f"\n── ALL RESULTS (sorted by objective) ───────────────")
+    print(f"\n-- ALL RESULTS (sorted by objective) ---------------")
     print(summary[cols].to_string(index=False))
 except Exception:
     pass
 
-# ── 9. REGENERATE PERFORMANCE PLOT ───────────────────────────────
+# -- 9. REGENERATE PERFORMANCE PLOT -------------------------------
 try:
     import matplotlib.pyplot as plt
 
@@ -264,6 +263,6 @@ try:
     plt.tight_layout()
     plt.savefig('performance.png', dpi=150)
     plt.close()
-    print("Updated → performance.png")
+    print("Updated -> performance.png")
 except Exception as e:
     print(f"Could not update performance.png: {e}")

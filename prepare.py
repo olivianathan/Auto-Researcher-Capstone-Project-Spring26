@@ -1,5 +1,5 @@
 """
-prepare.py  —  FROZEN
+prepare.py  -- FROZEN
 Do not modify this file. It defines the data pipeline, train/val/test split,
 and baseline evaluation. The agent should only modify model.py.
 
@@ -20,7 +20,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
 
-# ── 1. MERGE RAW FILES ────────────────────────────────────────────
+# -- 1. MERGE RAW FILES ---------------------------------------------------
 print("Loading and merging raw NHANES files...")
 
 demographic   = pd.read_csv('demographic.csv')
@@ -42,7 +42,7 @@ for df in [diet, examination, labs, med_agg, questionnaire]:
 merged.to_csv('nhanes_merged.csv', index=False)
 print(f"  Merged shape: {merged.shape}")
 
-# ── 2. CLEAN ──────────────────────────────────────────────────────
+# -- 2. CLEAN -------------------------------------------------------------
 print("Cleaning...")
 
 df = pd.read_csv('nhanes_merged.csv')
@@ -81,7 +81,7 @@ for col in cat_cols:
 
 df['num_medications'] = df['num_medications'].fillna(0)
 
-# ── 3. SELECT COLUMNS + ENGINEER TARGETS ─────────────────────────
+# -- 3. SELECT COLUMNS + ENGINEER TARGETS ---------------------------------
 print("Selecting features and engineering targets...")
 
 demographics   = ['SEQN', 'RIAGENDR', 'RIDAGEYR', 'RIDRETH3', 'INDFMPIR', 'DMDEDUC2']
@@ -116,7 +116,7 @@ df_selected.to_csv('nhanes_selected.csv', index=False)
 print(f"  Selected shape: {df_selected.shape}")
 print(f"  High risk prevalence: {df_selected['high_risk'].mean():.1%}")
 
-# ── 4. FEATURE MATRIX ────────────────────────────────────────────
+# -- 4. FEATURE MATRIX ----------------------------------------------------
 drop_cols = [
     'SEQN', 'high_risk', 'prediabetes_risk', 'hypertension_risk',
     'DIQ010', 'BPQ020',
@@ -132,8 +132,8 @@ for col in activity_flags:
     if col in X.columns:
         X[col] = X[col].fillna(0)
 
-# ── 5. LOCKED TRAIN / VAL / TEST SPLIT ───────────────────────────
-# FROZEN — these splits never change across any experiment
+# -- 5. LOCKED TRAIN / VAL / TEST SPLIT -----------------------------------
+# FROZEN -- these splits never change across any experiment
 print("Creating locked train/val/test split...")
 
 X_train_full, X_test, y_train_full, y_test = train_test_split(
@@ -148,7 +148,6 @@ test_indices = X_test.index.tolist()
 with open('locked_test_indices.json', 'w') as f:
     json.dump(test_indices, f)
 
-# save split data for run.py to load
 X_train.to_csv('X_train.csv', index=True)
 X_val.to_csv('X_val.csv', index=True)
 y_train.to_csv('y_train.csv', index=True)
@@ -156,9 +155,9 @@ y_val.to_csv('y_val.csv', index=True)
 
 print(f"  Train: {len(X_train):,} | Val: {len(X_val):,} | Test (locked): {len(X_test):,}")
 print("  Splits saved: X_train.csv, X_val.csv, y_train.csv, y_val.csv")
-print("  Test set locked → locked_test_indices.json")
+print("  Test set locked -> locked_test_indices.json")
 
-# ── 6. BASELINE MODEL ────────────────────────────────────────────
+# -- 6. BASELINE MODEL ----------------------------------------------------
 print("\nFitting baseline logistic regression...")
 
 scaler = StandardScaler()
@@ -178,7 +177,7 @@ cm  = confusion_matrix(y_val, y_pred)
 tn, fp, fn, tp = cm.ravel()
 overall_tpr = tp / (tp + fn)
 
-print(f"\n── BASELINE RESULTS (validation set) ──────────────")
+print(f"\n-- BASELINE RESULTS (validation set) --")
 print(f"  AUC-ROC:     {auc:.4f}")
 print(f"  Overall TPR: {overall_tpr:.4f}")
 print(f"  Runtime:     {elapsed}s")
@@ -229,16 +228,15 @@ age_table = pd.DataFrame(age_results)
 all_tprs = list(sex_table['tpr']) + list(race_table['tpr']) + list(age_table['tpr'])
 eq_odds_gap = round(max(all_tprs) - min(all_tprs), 4)
 
-print("── SUBGROUP FAIRNESS (Sex) ─────────────────────────")
+print("-- SUBGROUP FAIRNESS (Sex) --")
 print(sex_table.to_string(index=False))
-print("\n── SUBGROUP FAIRNESS (Race/Ethnicity) ──────────────")
+print("\n-- SUBGROUP FAIRNESS (Race/Ethnicity) --")
 print(race_table.to_string(index=False))
-print("\n── SUBGROUP FAIRNESS (Age Group) ───────────────────")
+print("\n-- SUBGROUP FAIRNESS (Age Group) --")
 print(age_table.to_string(index=False))
-print(f"\n── EQUALIZED ODDS GAP: {eq_odds_gap}")
-print(f"   Target: ≤ 0.05 | {'PASS ✓' if eq_odds_gap <= 0.05 else 'FAIL ✗ — agent needs to close this gap'}")
+print(f"\n-- EQUALIZED ODDS GAP: {eq_odds_gap}")
+print(f"   Target: <= 0.05 | {'PASS' if eq_odds_gap <= 0.05 else 'FAIL -- agent needs to close this gap'}")
 
-# save baseline for run.py to compare against
 baseline_results = {
     "model": "logistic_regression",
     "auc_roc": round(auc, 4),
@@ -254,47 +252,45 @@ baseline_results = {
 with open('baseline_results.json', 'w') as f:
     json.dump(baseline_results, f, indent=2)
 
-print("\nBaseline saved → baseline_results.json")
+print("\nBaseline saved -> baseline_results.json")
 
-# ── 7. GENERATE PERFORMANCE PLOT ──────────────────────────────────
+# -- 7. GENERATE PERFORMANCE PLOT -----------------------------------------
 def plot_performance():
     import os
-    if not os.path.exists('results.tsv'):
-        print("No results.tsv yet — run run.py first to generate experiments.")
+    if not os.path.exists('experiment_log.csv'):
+        print("No experiment_log.csv yet -- run run.py first.")
         return
 
-    results = pd.read_csv('results.tsv', sep='\t')
+    results = pd.read_csv('experiment_log.csv')
     if results.empty:
         return
 
-    for col in ['auc_roc', 'eq_odds_gap']:
+    for col in ['auc_roc', 'eq_odds_gap_overall', 'iteration']:
         if col in results.columns:
             results[col] = pd.to_numeric(results[col], errors='coerce')
 
-    results = results.dropna(subset=['auc_roc', 'eq_odds_gap'])
+    results = results.dropna(subset=['auc_roc', 'eq_odds_gap_overall'])
     if results.empty:
         return
 
-    results['iteration'] = range(1, len(results) + 1)
+    results = results.sort_values('iteration')
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-    # AUC vs fairness gap scatter
     ax = axes[0]
-    ax.scatter(results['eq_odds_gap'], results['auc_roc'], alpha=0.8, zorder=3)
+    ax.scatter(results['eq_odds_gap_overall'], results['auc_roc'], alpha=0.8, zorder=3)
     for _, row in results.iterrows():
         ax.annotate(int(row['iteration']),
-                    (row['eq_odds_gap'], row['auc_roc']),
+                    (row['eq_odds_gap_overall'], row['auc_roc']),
                     textcoords='offset points', xytext=(5, 5), fontsize=9)
     ax.set_title('AUC vs Equalized Odds Gap')
     ax.set_xlabel('Equalized Odds Gap (lower = fairer)')
     ax.set_ylabel('AUC-ROC (higher = better)')
     ax.grid(alpha=0.3)
 
-    # metric trend
     ax2 = axes[1]
     ax2.plot(results['iteration'], results['auc_roc'], marker='o', label='AUC-ROC')
-    ax2.plot(results['iteration'], results['eq_odds_gap'], marker='o', label='EqOdds Gap')
+    ax2.plot(results['iteration'], results['eq_odds_gap_overall'], marker='o', label='EqOdds Gap')
     ax2.set_title('Metric Trend by Iteration')
     ax2.set_xlabel('Iteration')
     ax2.set_ylabel('Value')
@@ -303,8 +299,8 @@ def plot_performance():
 
     plt.tight_layout()
     plt.savefig('performance.png', dpi=150)
-    plt.show()
-    print("Saved → performance.png")
+    plt.close()
+    print("Saved -> performance.png")
 
 plot_performance()
 print("\nprepare.py complete. Now run: python run.py")
