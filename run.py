@@ -245,18 +245,20 @@ try:
     import matplotlib.pyplot as plt
 
     plot_df = pd.read_csv(log_path)
-    for col in ['auc_roc', 'eq_odds_gap_overall', 'iteration']:
-        plot_df[col] = pd.to_numeric(plot_df[col], errors='coerce')
+    for col in ['auc_roc', 'eq_odds_gap_overall', 'eq_odds_gap_sex',
+                'eq_odds_gap_race', 'eq_odds_gap_age', 'iteration']:
+        if col in plot_df.columns:
+            plot_df[col] = pd.to_numeric(plot_df[col], errors='coerce')
     plot_df = plot_df.dropna(subset=['auc_roc', 'eq_odds_gap_overall']).sort_values('iteration')
 
-    # mark where the fairness metric definition changed
     switch_iter = 7
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-
-    ax = axes[0]
     pre  = plot_df[plot_df['iteration'] < switch_iter]
     post = plot_df[plot_df['iteration'] >= switch_iter]
+
+    fig, axes = plt.subplots(1, 3, figsize=(19, 5))
+
+    # Panel 1: AUC vs overall fairness scatter
+    ax = axes[0]
     ax.scatter(pre['eq_odds_gap_overall'],  pre['auc_roc'],  alpha=0.8, zorder=3, label='iters 1-6 (EqOdds)')
     ax.scatter(post['eq_odds_gap_overall'], post['auc_roc'], alpha=0.8, zorder=3, marker='D', label='iters 7+ (hybrid)')
     for _, row in plot_df.iterrows():
@@ -269,15 +271,35 @@ try:
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
 
+    # Panel 2: overall metric + AUC trend
     ax2 = axes[1]
     ax2.plot(plot_df['iteration'], plot_df['auc_roc'], marker='o', label='AUC-ROC')
-    ax2.plot(plot_df['iteration'], plot_df['eq_odds_gap_overall'], marker='o', label='Fairness metric')
+    ax2.plot(plot_df['iteration'], plot_df['eq_odds_gap_overall'], marker='o', label='Overall fairness')
     ax2.axvline(x=switch_iter - 0.5, color='gray', linestyle='--', linewidth=1, label='metric switch')
-    ax2.set_title('Metric Trend by Iteration')
+    ax2.set_title('AUC + Overall Fairness by Iteration')
     ax2.set_xlabel('Iteration')
     ax2.set_ylabel('Value')
     ax2.legend(fontsize=8)
     ax2.grid(alpha=0.3)
+
+    # Panel 3: per-component fairness trend (iters 7+ for age MACE, all iters for sex/race)
+    ax3 = axes[2]
+    if 'eq_odds_gap_sex' in plot_df.columns:
+        ax3.plot(plot_df['iteration'], plot_df['eq_odds_gap_sex'],
+                 marker='o', label='Sex (EqOdds)')
+    if 'eq_odds_gap_race' in plot_df.columns:
+        ax3.plot(plot_df['iteration'], plot_df['eq_odds_gap_race'],
+                 marker='o', label='Race (EqOdds)')
+    if 'eq_odds_gap_age' in plot_df.columns:
+        ax3.plot(post['iteration'], post['eq_odds_gap_age'],
+                 marker='D', linestyle='--', label='Age MACE (iters 7+)')
+    ax3.axhline(y=0.05, color='red', linestyle=':', linewidth=1, label='target <= 0.05')
+    ax3.axvline(x=switch_iter - 0.5, color='gray', linestyle='--', linewidth=1)
+    ax3.set_title('Per-Component Fairness by Iteration')
+    ax3.set_xlabel('Iteration')
+    ax3.set_ylabel('Metric value')
+    ax3.legend(fontsize=8)
+    ax3.grid(alpha=0.3)
 
     plt.tight_layout()
     plt.savefig('performance.png', dpi=150)
