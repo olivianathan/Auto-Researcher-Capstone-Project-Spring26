@@ -3629,7 +3629,7 @@
 75292,2,,,,,,,,,,,
 75293,1,"ATORVASTATIN","d04105",1,365,"E78.0",,,"Pure hypercholesterolemia",,,4
 75293,1,"HYDROCHLOROTHIAZIDE; LOSARTAN","d03830",1,730,"I10",,,"Essential (primary) hypertension",,,4
-75293,1,"HYDROXYCHLOROQUINE","d00817",1,730,"M35.0",,,"Sicca syndrome [Sjögren]",,,4
+75293,1,"HYDROXYCHLOROQUINE","d00817",1,730,"M35.0",,,"Sicca syndrome [SjÃ¶gren]",,,4
 75293,1,"PANTOPRAZOLE","d04514",1,365,"K21",,,"Gastro-esophageal reflux disease",,,4
 75294,2,,,,,,,,,,,
 75295,1,"CETIRIZINE","d03827",1,182,"J30.9",,,"Allergic rhinitis, unspecified",,,7
@@ -4422,7 +4422,7 @@
 75662,1,"DIFLUPREDNATE OPHTHALMIC","d07298",1,14,"H57.8",,,"Other specified disorders of eye and adnexa",,,2
 75662,1,"OMEPRAZOLE","d00325",1,30,"K21",,,"Gastro-esophageal reflux disease",,,2
 75663,1,"ESTERIFIED ESTROGENS; METHYLTESTOSTERONE","d03245",1,5475,"Z79.81",,,"Long term (current) use of agents affecting estrogen receptors and estrogen levels",,,2
-75663,1,"HYDROCHLOROTHIAZIDE; TRIAMTERENE","d03052",1,2190,"H81.0",,,"Ménière's disease",,,2
+75663,1,"HYDROCHLOROTHIAZIDE; TRIAMTERENE","d03052",1,2190,"H81.0",,,"MÃ©niÃ¨re's disease",,,2
 75664,2,,,,,,,,,,,
 75665,2,,,,,,,,,,,
 75666,2,,,,,,,,,,,
@@ -19227,7 +19227,7 @@
 83202,1,"SIMVASTATIN","d00746",1,99999,"E78.0",,,"Pure hypercholesterolemia",,,3
 83203,1,"ATORVASTATIN","d04105",1,1460,"E78.0",,,"Pure hypercholesterolemia",,,9
 83203,1,"ENALAPRIL","d00013",1,1460,"I10",,,"Essential (primary) hypertension",,,9
-83203,1,"HYDROXYCHLOROQUINE","d00817",1,730,"M35.0",,,"Sicca syndrome [Sjögren]",,,9
+83203,1,"HYDROXYCHLOROQUINE","d00817",1,730,"M35.0",,,"Sicca syndrome [SjÃ¶gren]",,,9
 83203,1,"IBANDRONATE","d05357",1,1460,"M81",,,"Osteoporosis without current pathological fracture",,,9
 83203,1,"LORAZEPAM","d00149",1,1095,"F41.9","G47.0","G47.9","Anxiety disorder, unspecified","Insomnia","Sleep disorder, unspecified",9
 83203,1,"METFORMIN","d03807",1,1460,"E11","R73",,"Type 2 diabetes mellitus","Elevated blood glucose level",,9
