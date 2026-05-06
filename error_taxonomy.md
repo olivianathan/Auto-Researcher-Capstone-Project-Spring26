@@ -1,6 +1,6 @@
 # Error Taxonomy -- Auto-Researcher Agent Loop
 
-Categorizes failures observed across iterations 1-11 logged in `experiment_log.csv`.
+Categorizes failures observed across iterations 1-14 logged in `experiment_log.csv`.
 
 ---
 
@@ -15,6 +15,12 @@ The equalized-odds gap for age only moved from 0.9767 to 0.7876 across six itera
 
 **Iter 9 -- Random Forest + calibration was discarded because race EqOdds regressed.**
 RF calibrated with isotonic regression achieved better age MACE (0.0188) than iters 7-8, but the race equalized-odds gap jumped to 0.073, exceeding the 0.05 target and dragging the overall metric and objective below the kept threshold. The calibration layer helped age but hurt race parity.
+
+**Iters 10-11 -- Confounded experiments changed multiple variables simultaneously.**
+Iter 10 changed both the XGBoost architecture (depth=5, n=500, lr=0.03) and the base model relative to the calibration baseline (iter 7). Iter 11 then changed XGBoost params again AND cv folds (3->5) in the same run. Both were logged as improvements (obj 0.9224, 0.9228), but it was impossible to attribute the gain to any single change. The underlying question -- does cv=5 beat cv=3 on the same base model? -- remained unanswered until the controlled re-runs in iters 12-14.
+
+**Iter 14 -- Two-stage age-quintile calibration hurt race fairness.**
+Adding a per-age-quintile isotonic second pass on top of the global isotonic calibrator was expected to improve age MACE further. Instead, AUC dropped from 0.9285 to 0.9191 and the race equalized-odds gap jumped from 0.0229 to 0.0619, pushing overall fairness above the 0.05 target. The quintile-specific calibrators over-fit the age-group boundaries, distorting probability estimates in ways that affected race subgroups disproportionately.
 
 ---
 
@@ -44,8 +50,8 @@ The notebook's `equalized_odds_gap()` helper computed per-axis gaps (sex, race, 
 **The old agent loop re-split the data from scratch instead of using the locked splits.**
 The checkpoint (`03_agent_loop.py`) loaded `nhanes_clean.csv` and called `train_test_split` directly rather than reading the locked `X_train.csv` / `X_val.csv` written by `prepare.py`. Even with `random_state=42`, differences between `nhanes_clean.csv` and `nhanes_selected.csv` (the source for the locked splits) could produce a different validation set. Metrics across iterations are not guaranteed to be evaluated on the same rows.
 
-**Iters 7-11 -- The `eq_odds_gap_age` column stores two different quantities with no flag.**
-For iters 1-6 the column holds equalized-odds TPR gap for age groups. For iters 7-11 it holds MACE (mean absolute calibration error). Both are in [0,1] but measure fundamentally different things -- a drop from 0.82 to 0.03 across the iter 6/7 boundary looks like progress in the log but is partly a metric definition change, not a model improvement. There is no column in the log explicitly flagging which definition applies to each row, making any automated trend analysis across the full 11 iterations misleading.
+**Iters 7-14 -- The `eq_odds_gap_age` column stores two different quantities with no flag.**
+For iters 1-6 the column holds equalized-odds TPR gap for age groups. For iters 7-14 it holds MACE (mean absolute calibration error). Both are in [0,1] but measure fundamentally different things -- a drop from 0.82 to 0.03 across the iter 6/7 boundary looks like progress in the log but is partly a metric definition change, not a model improvement. There is no column in the log explicitly flagging which definition applies to each row, making any automated trend analysis across the full 14 iterations misleading.
 
 ---
 
