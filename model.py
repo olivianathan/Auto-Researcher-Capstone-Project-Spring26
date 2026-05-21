@@ -25,9 +25,44 @@ Controlled re-runs (iters 12-14): base model frozen at iter 7 XGBoost, one varia
   Iter 12: cv 3->5  (only cv changes)
   Iter 13: cv 3->10 (only cv changes)
   Iter 14: two-stage calibration -- global isotonic cv=3 + per-age-quintile isotonic second pass
+
+Agent loop iters 15-34 (all with frozen iter7 base unless noted):
+  Iter 35: Pipeline interaction terms            AUC 0.9288  obj 0.9206  -> discard [race gap 0.055]
+  Iter 36: VotingClassifier(3 seeds)             AUC 0.9282  obj 0.9235  -> discard
+  Iter 37: ExtraTreesClassifier + iso RKF(5,2)   AUC 0.9235  obj 0.9092  -> discard [race 0.095]
+  Iter 38: DART booster + iso RKF(5,2)           AUC 0.9263  obj 0.9142  -> discard [race 0.081]
+  Iter 39: XGBoost n=1000 lr=0.01 + iso RKF(5,2) AUC 0.9290 obj 0.9235  -> discard [race 0.037]
+  Iter 40: n=1000 lr=0.01 + iso RKF(5,3)         AUC 0.9289 obj 0.9206  -> discard [race 0.055]
+  Iter 41: iter7 base + iso RepeatedKFold(10,1)  AUC 0.9278 obj 0.9230  -> discard
+  Iter 42: num_parallel_tree=5 + iso RKF(5,2)    AUC 0.9292 obj 0.9190  -> discard [race 0.068]
+  Iter 43: iter7 base + sigmoid RKF(5,2)         AUC 0.9285 obj 0.9223  -> discard [age MACE 0.041]
+  Iter 44: VotingClassifier(isotonic+sigmoid RKF(5,2)) AUC 0.9285 obj 0.9231 -> discard [age MACE 0.036]
+  Iter 15: max_delta_step=1                     AUC 0.9281  obj 0.9232  -> discard
+  Iter 16: colsample_bylevel=0.8                AUC 0.9285  obj 0.9199  -> discard (fairness fail)
+  Iter 17: reg_lambda=2.0                       AUC 0.9279  obj 0.9231  -> discard
+  Iter 18: sigmoid cv=5                         AUC 0.9282  obj 0.9220  -> discard
+  Iter 19: HistGradientBoostingClassifier       AUC 0.9283  obj 0.9219  -> discard
+  Iter 20: n=500 lr=0.03 depth=4               AUC 0.9280  obj 0.9232  -> discard
+  Iter 21: monotone age constraint              AUC 0.9280  obj 0.9233  -> discard
+  Iter 22: GradientBoostingClassifier           AUC 0.9273  obj 0.9210  -> discard
+  Iter 23: BaggingClassifier(5x XGBoost)       AUC 0.9283  obj 0.9234  -> discard
+  Iter 24: iter4 base + isotonic cv=5          AUC 0.9280  obj 0.9206  -> discard
+  Iter 25: colsample_bytree=0.6                AUC 0.9273  obj 0.9224  -> discard
+  Iter 26: subsample=0.7                        AUC 0.9271  obj 0.9224  -> discard
+  Iter 27: gamma=0.05                           AUC 0.9277  obj 0.9229  -> discard
+  Iter 28: min_child_weight=4                   AUC 0.9270  obj 0.9222  -> discard
+  Iter 29: ensemble=False cv=5                 AUC 0.9279  obj 0.9213  -> discard
+  Iter 30: Pipeline(age^2 + age*BMI) + xgb     AUC 0.9275  obj 0.9226  -> discard
+  Iter 31: n=500 lr=0.05 depth=4              AUC 0.9274  obj 0.9225  -> discard
+  Iter 32: RepeatedKFold(5,2) isotonic        AUC 0.9285  obj 0.9238  -> KEEP <- NEW BEST
+  Iter 33: RepeatedKFold(5,3) isotonic        AUC 0.9284  obj 0.9232  -> discard
+  Iter 34: RepeatedStratifiedKFold(5,2)       AUC 0.9283  obj 0.9235  -> discard
 --------------------------------------------------------------------------------
 
-Current best: iter 12 (cv=5). Iters 13-14 were discarded.
+Current best: iter 32 (RepeatedKFold(5,2), 10 calibrated models). obj=0.9238.
+Iters 35-44 (10-loop campaign): all discarded. Key finding: configs with higher raw AUC
+  (n=1000 lr=0.01, num_parallel_tree=5) consistently widen the race gap (>0.05 FAIL).
+  Iter32 appears to sit on the Pareto frontier of AUC vs fairness for these 39 features.
 """
 
 try:
@@ -38,13 +73,17 @@ except ImportError:
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import RepeatedKFold, RepeatedStratifiedKFold
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, BaggingClassifier, VotingClassifier, ExtraTreesClassifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.isotonic import IsotonicRegression
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer
 
 DESCRIPTION = (
-    "Iter 12: XGBoost (iter7 base, frozen) + CalibratedClassifierCV isotonic cv=5 "
-    "-- only change from iter7: cv 3->5 [BEST KEPT: obj=0.9237]"
+    "Iter 32: iter7 base + isotonic RepeatedKFold(n_splits=5 n_repeats=2) "
+    "-- 10 calibrated models; beats iter12 (obj 0.9237->0.9238) via better age MACE (0.0322->0.0311) [BEST]"
 )
 
 # 'fixed_0.50'     -- use threshold=0.5 (default)
@@ -193,8 +232,6 @@ class AgeQuintileCalibrator:
 # -- CURRENT EXPERIMENT ---------------------------------------------------
 
 def build_model():
-    """
-    Best kept model: iter 12 -- frozen _base_xgb + CalibratedClassifierCV(isotonic, cv=5).
-    Iters 13 (cv=10, tied) and 14 (two-stage, regressed) were both discarded.
-    """
-    return CalibratedClassifierCV(_base_xgb(), method='isotonic', cv=5)
+    """Iter 32: iter7 base + isotonic RepeatedKFold(5, 2) = 10 calibrated models. New best."""
+    cv = RepeatedKFold(n_splits=5, n_repeats=2, random_state=42)
+    return CalibratedClassifierCV(_base_xgb(), method='isotonic', cv=cv)
