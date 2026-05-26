@@ -1,0 +1,15 @@
+{
+  "model": "Iter 46: iter32 base + race-only inverse-freq sample weights (strength=0.3) [BEST]",
+  "iteration": 46,
+  "eval_set": "locked_test",
+  "n_test": 2035,
+  "threshold": 0.57,
+  "auc_roc": 0.9253,
+  "overall_tpr": 0.736,
+  "objective_score": 0.9177,
+  "overall_fairness": 0.0504,
+  "sex_eq_odds_gap": 0.0258,
+  "race_eq_odds_gap": 0.0504,
+  "age_mace": 0.0081,
+  "fairness_pass": false
+}

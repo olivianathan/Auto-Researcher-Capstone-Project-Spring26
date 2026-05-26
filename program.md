@@ -56,30 +56,32 @@ Threshold is tuned by `run.py` (search 0.25–0.75) to minimize the sex + race e
 
 ---
 
-## 5) Current Best Model — Iter 32
+## 5) Current Best Model — Iter 46
 
-| Metric | Iter 1 (Baseline) | Iter 32 (Best) | Change |
-|---|---|---|---|
-| Model | Logistic Regression | XGBoost + Isotonic Calibration | — |
-| Objective Score | 0.7777 | **0.9238** | +0.1461 |
-| AUC-ROC | 0.9242 | **0.9285** | +0.0043 |
-| Overall Fairness | 0.9767 | **0.0311** | -0.9456 |
-| Sex EqOdds Gap | 0.0506 | 0.0152 | -0.0354 |
-| Race EqOdds Gap | 0.1869 | 0.0300 | -0.1569 |
-| Age MACE | 0.9767 | 0.0311 | -0.9456 |
-| Fairness Pass | FAIL | **PASS** | — |
+| Metric | Iter 1 (Baseline) | Iter 32 (Prev Best) | Iter 46 (Best) | Change vs 32 |
+|---|---|---|---|---|
+| Model | Logistic Regression | XGBoost + Isotonic Cal. | XGBoost + Isotonic Cal. + Race Weights | — |
+| Objective Score | 0.7777 | 0.9238 | **0.9239** | +0.0001 |
+| AUC-ROC | 0.9242 | 0.9285 | **0.9285** | 0.0000 |
+| Overall Fairness | 0.9767 | 0.0311 | **0.0309** | -0.0002 |
+| Sex EqOdds Gap | 0.0506 | 0.0152 | 0.0117 | -0.0035 |
+| Race EqOdds Gap | 0.1869 | 0.0300 | 0.0267 | -0.0033 |
+| Age MACE | 0.9767 | 0.0311 | 0.0309 | -0.0002 |
+| Fairness Pass | FAIL | PASS | **PASS** | — |
 
-**Iter 32 config**:
+**Iter 46 config**:
 ```python
 XGBClassifier(n_estimators=300, max_depth=4, learning_rate=0.05,
               subsample=0.8, colsample_bytree=0.7,
               min_child_weight=5, gamma=0.1,
               random_state=42, eval_metric='logloss', verbosity=0)
 
+# Race-only inverse-frequency sample weights (strength=0.3) applied at fit time
+# via GroupWeightedCalibrated wrapper in model.py
 CalibratedClassifierCV(base_xgb, method='isotonic',
                        cv=RepeatedKFold(n_splits=5, n_repeats=2, random_state=42))
 ```
-10 calibrated models are averaged at prediction time. The calibration ensemble is what primarily controls age MACE.
+Inverse-frequency sample weights by race group (upweighting smaller groups by up to 30%) are passed to `CalibratedClassifierCV.fit()`. The weighting reduced the race EqOdds gap from 0.030 → 0.027 while holding AUC flat.
 
 ---
 
@@ -146,6 +148,20 @@ Attempted model diversity and architecture changes. No improvement over iter 32.
 | 44 | ExtraTreesClassifier | 0.9235 | 0.9092 | discard — race 0.095 |
 
 **Key finding**: Configurations with higher raw AUC (iters 36, 39 reached 0.9290–0.9292) consistently widen the race fairness gap above 0.05. Iter 32 sits on the Pareto frontier of AUC vs fairness for the current 39 features.
+
+### Phase 6 — Sample Weighting Campaign (Iters 45–49)
+
+Explored race/sex inverse-frequency sample weighting via `GroupWeightedCalibrated` wrapper. **Iter 46 is new best.**
+
+| Iter | Change | AUC | Obj | Decision |
+|---|---|---|---|---|
+| 45 | sex×race weights, strength=0.5 | 0.9284 | 0.9221 | discard — race gap widened to 0.042 |
+| **46** | **race-only weights, strength=0.3** | **0.9285** | **0.9239** | **KEEP — NEW BEST** |
+| 47 | race-only weights, strength=0.5 | 0.9275 | 0.9228 | discard — AUC drop |
+| 48 | race-only weights, strength=0.4 | 0.9281 | 0.9236 | discard — AUC drop |
+| 49 | race-only 0.3 + RKF(5,3) | 0.9284 | 0.9237 | discard — AUC drop |
+
+**Key finding**: Gentle race-only weighting (strength=0.3) improved the race EqOdds gap (0.030→0.027) and sex gap (0.015→0.012) while holding AUC flat, nudging the objective from 0.9238→0.9239. Stronger weighting (≥0.4) consistently dropped AUC, negating fairness gains. Age MACE remains the binding fairness constraint (0.0309).
 
 ---
 

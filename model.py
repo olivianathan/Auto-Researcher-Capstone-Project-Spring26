@@ -81,11 +81,6 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 
-DESCRIPTION = (
-    "Iter 32: iter7 base + isotonic RepeatedKFold(n_splits=5 n_repeats=2) "
-    "-- 10 calibrated models; beats iter12 (obj 0.9237->0.9238) via better age MACE (0.0322->0.0311) [BEST]"
-)
-
 # 'fixed_0.50'     -- use threshold=0.5 (default)
 # 'fairness_tuned' -- run.py searches 0.25-0.75 minimizing sex/race equalized odds only
 THRESHOLD_MODE = 'fairness_tuned'
@@ -229,9 +224,83 @@ class AgeQuintileCalibrator:
         return np.column_stack([1 - probs, probs])
 
 
+# -- GROUP SAMPLE WEIGHTING WRAPPER (iters 45+) ---------------------------
+
+class GroupWeightedCalibrated:
+    """
+    Wraps CalibratedClassifierCV to apply inverse-frequency sample weights
+    by sex x race group at fit time. run.py calls fit(X, y) with no
+    sample_weight arg, so weighting must be computed internally.
+
+    Column indices match prepare.py ordering: [RIAGENDR=0, RIDAGEYR=1, RIDRETH3=2, ...]
+    """
+    SEX_COL  = 0  # RIAGENDR
+    RACE_COL = 2  # RIDRETH3
+
+    def __init__(self, base_estimator, method='isotonic', cv=None,
+                 weight_by='sex_race', strength=0.5):
+        self.base_estimator = base_estimator
+        self.method = method
+        self.cv = cv
+        self.weight_by = weight_by  # 'sex_race' or 'race'
+        self.strength = strength    # 0=uniform, 1=full inv-freq
+
+    def _group_labels(self, X):
+        from collections import Counter
+        race = self._snap(X[:, self.RACE_COL])
+        if self.weight_by == 'race':
+            return race
+        sex = self._snap(X[:, self.SEX_COL])
+        return [f"{s}_{r}" for s, r in zip(sex, race)]
+
+    @staticmethod
+    def _snap(col):
+        """Map scaled column back to integer group indices via unique-value rank."""
+        uniq = np.unique(col)
+        return np.searchsorted(uniq, col)
+
+    def _compute_weights(self, X):
+        from collections import Counter
+        labels = self._group_labels(X)
+        counts = Counter(labels)
+        n = len(labels)
+        inv_freq = np.array([n / counts[g] for g in labels], dtype=float)
+        # blend: weight = 1 + strength * (inv_freq_normalized - 1)
+        inv_freq_norm = inv_freq / inv_freq.mean()
+        weights = 1.0 + self.strength * (inv_freq_norm - 1.0)
+        return weights / weights.mean()
+
+    def fit(self, X, y):
+        weights = self._compute_weights(X)
+        cv = self.cv or RepeatedKFold(n_splits=5, n_repeats=2, random_state=42)
+        self.model_ = CalibratedClassifierCV(
+            self.base_estimator, method=self.method, cv=cv
+        )
+        self.model_.fit(X, y, sample_weight=weights)
+        return self
+
+    def predict_proba(self, X):
+        return self.model_.predict_proba(X)
+
+    def predict(self, X):
+        return self.model_.predict(X)
+
+
 # -- CURRENT EXPERIMENT ---------------------------------------------------
 
-def build_model():
-    """Iter 32: iter7 base + isotonic RepeatedKFold(5, 2) = 10 calibrated models. New best."""
+def build_iter32():
+    """Iter 32: iter7 base + isotonic RepeatedKFold(5, 2) = 10 calibrated models."""
     cv = RepeatedKFold(n_splits=5, n_repeats=2, random_state=42)
     return CalibratedClassifierCV(_base_xgb(), method='isotonic', cv=cv)
+
+
+def build_model():
+    """Iter 46: race-only inv-freq weights (strength=0.3) + RKF(5,2). New best: obj 0.9239, race gap 0.0267, age MACE 0.0309."""
+    cv = RepeatedKFold(n_splits=5, n_repeats=2, random_state=42)
+    return GroupWeightedCalibrated(_base_xgb(), method='isotonic', cv=cv,
+                                   weight_by='race', strength=0.3)
+
+
+DESCRIPTION = (
+    "Iter 46: iter32 base + race-only inverse-freq sample weights (strength=0.3) [BEST]"
+)
