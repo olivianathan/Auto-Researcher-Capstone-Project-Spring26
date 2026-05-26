@@ -1,120 +1,159 @@
-# Can Your Step Count Predict Your Health?
-### Using Fitness Data to Predict Chronic Disease Risk Across Demographic Groups
+# NHANES Chronic Disease Risk Prediction
+### Predicting Prediabetes and Hypertension Risk Fairly Across Demographic Groups
 
 **Data Science Capstone — Spring 2026**
 
 ---
 
-## What This Project Is
+## Project Overview
 
-This project builds an AI-driven modeling pipeline that predicts whether someone is at risk for **prediabetes or high blood pressure** using physical activity and health data from a large national survey (NHANES). 
+This project builds an auto-researcher pipeline that predicts whether a participant is at risk for **prediabetes or hypertension** using NHANES survey, examination, and lab data — while explicitly tracking fairness across sex, age, and race/ethnicity subgroups.
 
-What makes it different from a standard prediction task is the **fairness angle** — the goal isn't just to build the most accurate model, but to make sure the model performs equally well across different groups of people (by sex, age, and race/ethnicity). A model that works well on average but fails for a specific group isn't a success here.
-
-The modeling pipeline follows **Andrej Karpathy's auto-researcher framework**, where an AI agent automatically proposes experiments, runs them, evaluates the results, and decides what to try next — rather than manually testing one model at a time.
+The modeling loop follows an **auto-researcher framework**: an AI agent proposes experiments, runs them, evaluates results against an objective function that jointly optimizes accuracy and fairness, and decides what to try next. All 49 iterations are logged in `experiment_log.csv`.
 
 ---
 
 ## Research Question
 
-> Can wearable activity data be used to accurately predict chronic disease risk while maintaining fair performance across demographic subgroups?
+> Can survey, examination, and lab features predict prediabetes or hypertension risk accurately **and** fairly across sex, age, and race/ethnicity groups?
 
 ---
 
 ## Data
 
-- **Source:** [NHANES 2011–2014](https://wwwn.cdc.gov/nchs/nhanes/) (National Health and Nutrition Examination Survey, CDC), accessed via [Kaggle](https://www.kaggle.com/datasets/cdc/national-health-and-nutrition-examination-survey)
-- **Size:** ~10,175 participants, 53 features after cleaning
-- **Files used:** demographic, diet, examination, labs, medications, questionnaire (merged on participant ID)
-- **Target variable:** `high_risk` — 1 if HbA1c ≥ 5.7% (prediabetes) OR average BP ≥ 130/80 mmHg (hypertension). 31.6% of participants are flagged as high risk.
+- **Source:** [NHANES 2011–2014](https://wwwn.cdc.gov/nchs/nhanes/) via [Kaggle](https://www.kaggle.com/datasets/cdc/national-health-and-nutrition-examination-survey)
+- **Size:** ~10,175 participants after merging and cleaning
+- **Features:** 39 columns — demographics, activity, body measures, labs, lifestyle, medications
+- **Target:** `high_risk` (binary) — HbA1c ≥ 5.7% (prediabetes risk) OR avg systolic ≥ 130 OR avg diastolic ≥ 80 (hypertension risk)
 
 ---
 
-## What Success Looks Like
-
-The project is successful if the final model:
-
-1. **Beats the baseline** — AUC-ROC improves by at least +0.03 over logistic regression
-2. **Is fair** — equalized odds gap between subgroups stays ≤ 0.05
-3. **Doesn't leave anyone behind** — no single subgroup has a true positive rate more than 10 points below the overall rate
-
----
-
-## Project Structure
+## Objective Function
 
 ```
-├── merge_nhanes.py        # merges the 6 raw NHANES CSV files into one dataset
-├── select_columns.py      # selects relevant columns + engineers target variables
-├── clean_data.py          # handles missing values, creates total_active_min_per_week
+objective = AUC-ROC - 0.15 × overall_fairness
+```
+
+where `overall_fairness = max(sex_gap, race_gap, age_MACE)`:
+- **Sex / Race**: equalized odds TPR gap across subgroups
+- **Age**: Mean Absolute Calibration Error (MACE) across bins [0–17, 18–34, 35–49, 50–64, 65–80]
+
+**Fairness pass threshold**: `overall_fairness ≤ 0.05`
+
+---
+
+## Final Results — Iter 46 (Best Model)
+
+| Metric | Validation | Locked Test |
+|---|---|---|
+| Model | XGBoost + Isotonic Cal. + Race Weights | — |
+| AUC-ROC | 0.9285 | 0.9253 |
+| Objective Score | 0.9239 | 0.9177 |
+| Sex EqOdds Gap | 0.0117 | 0.0258 |
+| Race EqOdds Gap | 0.0267 | 0.0504 |
+| Age MACE | 0.0309 | 0.0081 |
+| Overall Fairness | 0.0309 | 0.0504 |
+| Fairness Pass | PASS | near-FAIL (0.0504 vs 0.05 threshold) |
+
+Full test set results saved in `final_test_results.json`.
+
+---
+
+## Repo Structure
+
+```
+stat390/
+├── prepare.py                  # FROZEN — merges raw CSVs, engineers features, locks splits
+├── model.py                    # AGENT-MUTABLE — contains build_model(); only file changed per iteration
+├── run.py                      # FROZEN — trains model, evaluates, appends row to experiment_log.csv
+├── plot_calibration.py         # generates calibration.png
 │
-├── 01_eda.ipynb           # exploratory data analysis — distributions, subgroup charts
-├── 02_baseline.ipynb      # logistic regression baseline + subgroup performance table
-├── 03_agent_loop.ipynb    # auto-researcher agent loop (XGBoost, neural net, fairness)
-├── 04_evaluation.ipynb    # final model evaluation — AUC-ROC, equalized odds, results
+├── program.md                  # full project plan, objective function, all 49 iteration history
+├── experiment_log.csv          # append-only log of every iteration
+├── keep_discard_summary.csv    # summary of keep/discard decisions
 │
-├── nhanes_merged.csv      # all 6 files joined on SEQN
-├── nhanes_selected.csv    # trimmed to 52 relevant columns + target variables
-├── nhanes_clean.csv       # final cleaned dataset ready for modeling
+├── baseline_results.json       # iter 1 (LR) metrics, used as reference by run.py
+├── final_test_results.json     # one-time locked test set evaluation (iter 46)
+├── locked_test_indices.json    # row indices of test set — never used during iteration
 │
-├── requirements.txt       # python dependencies
-└── README.md              # you are here
+├── performance.png             # AUC + fairness trend plots across all iterations
+├── calibration.png             # calibration curve for best model
+│
+├── requirements.txt            # python dependencies
+│
+├── docs/
+│   ├── best_vs_baseline.md     # head-to-head table: iter 1 vs iter 46
+│   ├── error_taxonomy.md       # notes on confounded and failed iterations
+│   ├── Reflection Memo.docx
+│   └── Project Statement + 2 Week Plan.docx
+│
+└── data/
+    ├── demographic.csv         # raw NHANES download (not generated)
+    ├── diet.csv
+    ├── examination.csv
+    ├── labs.csv
+    ├── medications.csv
+    └── questionnaire.csv
+    # nhanes_merged.csv, nhanes_selected.csv, nhanes_clean.csv,
+    # X_train.csv, X_val.csv, y_train.csv, y_val.csv
+    # are generated by prepare.py and excluded from version control
 ```
 
 ---
 
-## How to Run It
+## How to Run
 
-**1. Install dependencies**
+**Step 1 — Install dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-**2. Prepare the data** (run in order)
+**Step 2 — Download raw NHANES files**
+
+Download from [Kaggle](https://www.kaggle.com/datasets/cdc/national-health-and-nutrition-examination-survey) and place all 6 CSV files into `data/`:
+```
+data/demographic.csv
+data/diet.csv
+data/examination.csv
+data/labs.csv
+data/medications.csv
+data/questionnaire.csv
+```
+
+**Step 3 — Prepare data** (run once)
 ```bash
-python merge_nhanes.py
-python select_columns.py
-python clean_data.py
+python prepare.py
+```
+Merges raw files, engineers features, creates the locked train/val/test split, and saves `baseline_results.json` and `locked_test_indices.json`.
+
+**Step 4 — Edit the model** *(agent modifies this)*
+```bash
+# model.py contains build_model() — modify this file to propose a new experiment
 ```
 
-**3. Open the notebooks in order**
+**Step 5 — Run an iteration**
+```bash
+python run.py
 ```
-01_eda.ipynb → 02_baseline.ipynb → 03_agent_loop.ipynb → 04_evaluation.ipynb
-```
+Trains the model, evaluates AUC and fairness on the validation set, and appends a row to `experiment_log.csv`.
 
-> Note: The raw NHANES CSV files are not included in this repo due to size. Download them from [Kaggle](https://www.kaggle.com/datasets/cdc/national-health-and-nutrition-examination-survey) and place them in the root folder before running the scripts.
+**Step 6 — Plot calibration**
+```bash
+python plot_calibration.py
+```
+Generates `calibration.png` showing probability calibration for the current model.
 
 ---
 
-## Dependencies
-
-```
-pandas
-numpy
-scikit-learn
-xgboost
-imbalanced-learn
-shap
-matplotlib
-seaborn
-jupyter
-```
-
-Install all at once:
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Key Decisions
+## Key Design Decisions
 
 | Decision | Choice | Reason |
 |---|---|---|
 | Target variable | `high_risk` (binary) | Combines prediabetes + hypertension into one actionable label |
-| Primary metric | AUC-ROC | Handles class imbalance better than accuracy |
-| Fairness metric | Equalized odds gap | Measures whether TPR is consistent across groups |
-| Frozen components | Train/test split, target definition, clinical thresholds | Must stay fixed so agent iterations are comparable |
-| Minimum viable project | Baseline + XGBoost + fairness table | Delivers a real result even if advanced models don't improve things |
+| Primary metric | AUC-ROC | Handles class imbalance; threshold-independent |
+| Age fairness | MACE not EqOdds | Age risk is monotone — calibration error is more meaningful than TPR gap |
+| Frozen components | `prepare.py`, `run.py`, train/val/test split | Keeps all 49 iterations on an identical evaluation surface |
+| Best model | Iter 46 — XGBoost + isotonic calibration + race-only inverse-frequency sample weights | Sits on the Pareto frontier of AUC vs fairness for the current 39 features |
 
 ---
 
